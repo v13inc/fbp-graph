@@ -58,7 +58,7 @@ class Graph extends EventEmitter
   # the graph API will implicitly create a transaction for that change
   startTransaction: (id, metadata) ->
     if @transaction.id
-      throw Error("Nested transactions not supported")
+      console.warn Error("Nested transactions not supported")
 
     @transaction.id = id
     @transaction.depth = 1
@@ -377,6 +377,20 @@ class Graph extends EventEmitter
 
     @checkTransactionEnd()
 
+  findUniqueNodeName: (name, num) ->
+    if num
+      uniqueName = "#{name}-#{num}"
+    else
+      uniqueName = name
+      num = 1
+
+    for node in @nodes
+      continue unless node
+      if node.id is uniqueName
+        return @findUniqueNodeName(name, num + 1)
+    
+    return uniqueName
+
   # ## Getting a node
   #
   # Nodes objects can be retrieved from the graph by their ID:
@@ -564,6 +578,23 @@ class Graph extends EventEmitter
           return edge
     return null
 
+  getConnectedNodes: (node) ->
+    nodes = {}
+    for edge, index in @edges
+      continue unless edge
+      if edge.from.node is node
+        if not nodes[edge.from.port]
+          nodes[edge.from.port] = { port: edge.from.port, connectedNodes: [edge.to.node] }
+        else
+          nodes[edge.from.port].connectedNodes.push(edge.to.node)
+      else if edge.to.node is node
+        if not nodes[edge.to.port]
+          nodes[edge.to.port] = { port: edge.to.port, connectedNodes: [edge.from.node] }
+        else
+          nodes[edge.to.port].connectedNodes.push(edge.from.node)
+
+    return Object.values(nodes)
+
   # ## Changing an edge's metadata
   #
   # Edge metadata can be set or changed by calling this method.
@@ -680,6 +711,18 @@ class Graph extends EventEmitter
       @emit 'removeInitial', edge
 
     @checkTransactionEnd()
+  
+  getInitials: (node) ->
+    initials = {}
+    
+    for edge, index in @initializers
+      if edge.to.node is node
+        if !initials[edge.to.port]
+          initials[edge.to.port] = []
+
+        initials[edge.to.port].push edge.from.data
+    
+    return initials
 
   removeGraphInitial: (node) ->
     inport = @inports[node]
@@ -861,7 +904,10 @@ exports.loadJSON = (definition, callback, metadata = {}) ->
 
   graph.endTransaction 'loadJSON'
 
-  callback null, graph
+  if callback
+    callback null, graph
+
+  graph
 
 exports.loadFBP = (fbpData, callback, metadata = {}, caseSensitive = false) ->
   try
